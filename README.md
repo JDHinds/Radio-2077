@@ -26,8 +26,8 @@
 
 <script>
 // === CONFIG ===
-const SONG_PATH = "/assets/audio/songs/";
-const JINGLE_PATH = "/assets/audio/jingles/";
+const SONG_PATH = "/91.9/tracks/";
+const JINGLE_PATH = "/91.9/blips/";
 const USE_UTC_API = "https://worldtimeapi.org/api/timezone/Etc/UTC";
 const JINGLE_FREQUENCY = 4;     // insert a jingle after every 4 songs
 
