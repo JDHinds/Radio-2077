@@ -2,7 +2,7 @@
 
 91.9 Royal Blue Radio
 
-<!-- 🎵 Synced Internet Radio with Auto-Discovery + Scrolling UI -->
+<!-- 🎵 Synced Radio Using Local Time (No External API) -->
 <div class="radio-ui" style="font-family:sans-serif; max-width:400px;">
   <div style="overflow:hidden; white-space:nowrap; border-bottom:1px solid #ccc; padding:6px 0;">
     <strong>Now:</strong>
@@ -28,10 +28,9 @@
 // === CONFIG ===
 const SONG_PATH = "/91.9/tracks/";
 const JINGLE_PATH = "/91.9/blips/";
-const USE_UTC_API = "https://worldtimeapi.org/api/timezone/Etc/UTC";
-const JINGLE_FREQUENCY = 4;     // insert a jingle after every 4 songs
+const JINGLE_FREQUENCY = 2;  // insert one jingle every 4 tracks
 
-// === AUTO-DISCOVER FILES (JEKYLL FILLS THIS IN ON BUILD) ===
+// === AUTO-DISCOVERED BY JEKYLL ===
 const SONGS = [
   {% for file in site.static_files %}
     {% if file.path contains SONG_PATH %}
@@ -48,14 +47,13 @@ const JINGLES = [
   {% endfor %}
 ];
 
-// === BASIC DURATION EXTRACTION (filename_180s.ogg) ===
+// === DURATION HANDLING (filename_180s.ogg) ===
 function extractDuration(filepath) {
-  const name = filepath.split("/").pop();
-  const m = name.match(/_(\d+)s\./);
-  return m ? parseInt(m[1]) : 180; // default 3 minutes if unknown
+  const filename = filepath.split("/").pop();
+  const m = filename.match(/_(\d+)s\./);
+  return m ? parseInt(m[1]) : 180; // default 3 mins
 }
 
-// Convert file paths → objects
 function toTracks(arr) {
   return arr.map(src => ({
     src,
@@ -71,7 +69,7 @@ const player = document.getElementById("radio-player");
 const nowEl = document.getElementById("now-playing");
 const nextEl = document.getElementById("next-up");
 
-// === DETERMINISTIC SHUFFLE (Fisher-Yates with a seed) ===
+// === DETERMINISTIC SHUFFLE (Seeded) ===
 function seededRandom(seed) {
   return function() {
     seed = (seed * 9301 + 49297) % 233280;
@@ -87,21 +85,23 @@ function shuffleDeterministic(array, seed) {
     const j = Math.floor(rand() * (i + 1));
     [arr[i], arr[j]] = [arr[j], arr[i]];
   }
+
   return arr;
 }
 
-// === BUILD PLAYLIST W/ DETERMINISTIC SHUFFLE + JINGLES ===
+// === BUILD PLAYLIST — uses deterministic shuffle ===
 function buildPlaylist(seed) {
   const shuffledSongs = shuffleDeterministic(SONG_LIST, seed);
-  const shuffledJingles = shuffleDeterministic(JINGLE_LIST, seed * 17);
+  const shuffledJingles = shuffleDeterministic(JINGLE_LIST, seed * 31);
 
   const playlist = [];
   let count = 0;
   let jIdx = 0;
 
-  shuffledSongs.forEach((song) => {
+  shuffledSongs.forEach(song => {
     playlist.push(song);
     count++;
+
     if (count >= JINGLE_FREQUENCY && shuffledJingles.length > 0) {
       playlist.push(shuffledJingles[jIdx % shuffledJingles.length]);
       jIdx++;
@@ -112,30 +112,31 @@ function buildPlaylist(seed) {
   return playlist;
 }
 
-// === MAIN RADIO LOGIC ===
-async function startRadio() {
-  let utc;
-  try {
-    const r = await fetch(USE_UTC_API);
-    const data = await r.json();
-    utc = new Date(data.utc_datetime);
-  } catch {
-    utc = new Date(); // fallback
-  }
+// === MAIN LOGIC (LOCAL TIME ONLY) ===
+function startRadio() {
+  const now = new Date();
 
-  const seed = parseInt(utc.toISOString().slice(0,10).replace(/-/g,"")); // YYYYMMDD
-  const secs = Math.floor(utc.getTime() / 1000);
+  // Seed derived from the date → everyone has same order
+  const seed = parseInt(now.toISOString().slice(0,10).replace(/-/g,""));
+
+  // Local seconds since midnight → pseudo-sync start position
+  const secs = now.getHours()*3600 + now.getMinutes()*60 + now.getSeconds();
+
   const playlist = buildPlaylist(seed);
 
   const totalDur = playlist.reduce((s, t) => s + t.duration, 0);
+
+  // Loop the playlist (24h days don’t need to line up with playlist length)
   let pos = secs % totalDur;
 
+  // Find which track that time falls into
   let index = 0;
   while (pos >= playlist[index].duration) {
     pos -= playlist[index].duration;
     index++;
   }
 
+  // Begin playback at computed offset
   playTrack(playlist, index, pos);
 }
 
@@ -151,11 +152,12 @@ function playTrack(playlist, index, offset) {
   player.currentTime = offset;
 
   player.play().catch(() => {
-    // user interaction needed
+    /* user interaction needed — ignore */
   });
 
   player.onended = () => {
-    playTrack(playlist, (index + 1) % playlist.length, 0);
+    const nextIndex = (index + 1) % playlist.length;
+    playTrack(playlist, nextIndex, 0);
   };
 }
 
