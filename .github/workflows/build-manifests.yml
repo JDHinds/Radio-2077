@@ -1,23 +1,35 @@
-name: Build Radio Manifests
+name: Build and Deploy Radio Jekyll Site
 
 on:
   push:
     branches: ["main"]
 
 permissions:
-  contents: write
+  contents: read
+  pages: write
+  id-token: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-            persist-credentials: true
 
-      - name: Install ffmpeg
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+
+      - name: Install dependencies
+        run: |
+          bundle init || true
+          echo 'gem "github-pages", group: :jekyll_plugins' >> Gemfile
+          bundle install
+
+      - name: Install ffmpeg + jq
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg jq
@@ -30,12 +42,9 @@ jobs:
             [ -d "$RADIO" ] || continue
             NAME=$(basename "$RADIO")
 
-            echo "Processing $NAME"
-
             SONGS_JSON="[]"
             JINGLES_JSON="[]"
 
-            # Songs
             if [ -d "$RADIO/songs" ]; then
               for FILE in "$RADIO/songs/"*; do
                 [ -f "$FILE" ] || continue
@@ -45,7 +54,6 @@ jobs:
               done
             fi
 
-            # Jingles
             if [ -d "$RADIO/jingles" ]; then
               for FILE in "$RADIO/jingles/"*; do
                 [ -f "$FILE" ] || continue
@@ -63,10 +71,29 @@ jobs:
               > manifests/$NAME.json
           done
 
-      - name: Commit manifests
+      - name: Move manifests into Jekyll site
         run: |
-          git config user.name github-actions
-          git config user.email actions@github.com
-          git add manifests
-          git commit -m "Update radio manifests" || echo "No changes"
-          git push
+          mkdir -p _site
+          cp -R manifests _site/
+
+      - name: Build Jekyll site
+        run: bundle exec jekyll build --destination _site
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
