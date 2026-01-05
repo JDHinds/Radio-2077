@@ -10,7 +10,6 @@ async function initRadio(el) {
 
     if (!songs.length) return;
 
-    // build repeating schedule
     let schedule = [];
     let j = 0;
     for (let i = 0; i < songs.length; i++) {
@@ -49,10 +48,11 @@ async function initRadio(el) {
             audio.play();
         }, { once: true });
 
-        audio.onended = () => playLoop();
+        audio.onended = playLoop;
     }
 
     playLoop();
 }
 
-document.querySelectorAll(".radio").forEach(initRadio);
+// expose globally
+window.initRadio = initRadio;
