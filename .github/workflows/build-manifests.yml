@@ -1,0 +1,56 @@
+name: Build Radio Manifests
+
+on:
+  push:
+    branches: ["main"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ffmpeg
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Build manifests
+        run: |
+          mkdir -p manifests
+          for RADIO in radios/*; do
+            [ -d "$RADIO" ] || continue
+            NAME=$(basename "$RADIO")
+
+            echo "Processing $NAME"
+
+            SONGS_JSON="[]"
+            JINGLES_JSON="[]"
+
+            for FILE in "$RADIO/songs/"*; do
+              [ -f "$FILE" ] || continue
+              DUR=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$FILE")
+              URL="/$FILE"
+              SONGS_JSON=$(jq --arg u "$URL" --arg d "$DUR" '. += [{"url":$u,"duration":($d|tonumber)}]' <<< "$SONGS_JSON")
+            done
+
+            for FILE in "$RADIO/jingles/"*; do
+              [ -f "$FILE" ] || continue
+              DUR=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$FILE")
+              URL="/$FILE"
+              JINGLES_JSON=$(jq --arg u "$URL" --arg d "$DUR" '. += [{"url":$u,"duration":($d|tonumber)}]' <<< "$JINGLES_JSON")
+            done
+
+            jq -n \
+              --arg name "$NAME" \
+              --argjson songs "$SONGS_JSON" \
+              --argjson jingles "$JINGLES_JSON" \
+              '{name:$name,songs:$songs,jingles:$jingles}' \
+              > manifests/$NAME.json
+          done
+
+      - name: Commit manifests
+        run: |
+          git config user.name github-actions
+          git config user.email actions@github.com
+          git add manifests
+          git commit -m "Update radio manifests" || echo "No changes"
+          git push
